@@ -234,6 +234,12 @@ _NUM_DIFFUSION_SAMPLES = flags.DEFINE_integer(
     'Number of diffusion samples to generate.',
 )
 
+# Number of seeds to use for inference.
+_NUM_SEEDS = flags.DEFINE_integer(
+  'num_seeds',
+  1,
+  'Number of seeds to use for inference. It will generate random seeds and overwrite the seeds in the input JSON file.',
+)
 
 class ConfigurableModel(Protocol):
   """A model with a nested config class."""
@@ -597,6 +603,18 @@ def process_fold_input(
   return output
 
 
+def set_seeds(fold_input: folding_input.Input, num_seeds: int) -> folding_input.Input:
+    """Sets the random seeds for the fold input."""
+    rng = np.random.default_rng()
+    seeds = rng.integers(low=0, high=2**32, size=num_seeds).tolist()
+    return folding_input.Input(
+        name=fold_input.name,
+        chains=fold_input.chains,
+        rng_seeds=seeds,
+        bonded_atom_pairs=fold_input.bonded_atom_pairs,
+        user_ccd=fold_input.user_ccd
+    )
+
 def main(_):
   if _JAX_COMPILATION_CACHE_DIR.value is not None:
     jax.config.update(
@@ -708,6 +726,7 @@ def main(_):
 
   print(f'Processing {len(fold_inputs)} fold inputs.')
   for fold_input in fold_inputs:
+    fold_input = set_seeds(fold_input, _NUM_SEEDS.value)
     process_fold_input(
         fold_input=fold_input,
         data_pipeline_config=data_pipeline_config,
