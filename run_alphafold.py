@@ -256,6 +256,12 @@ _NUM_SEEDS = flags.DEFINE_integer(
   'Number of seeds to use for inference. It will generate random seeds and overwrite the seeds in the input JSON file.',
 )
 
+_NUM_RECYCLES = flags.DEFINE_integer(
+  'num_recycles',
+  10,
+  'Number of recycles to use during inference.',
+)
+
 class ConfigurableModel(Protocol):
   """A model with a nested config class."""
 
@@ -292,6 +298,7 @@ def make_model_config(
     )
   if hasattr(config, 'heads'):
     config.heads.diffusion.eval.num_samples = num_diffusion_samples
+  config.num_recycles = _NUM_RECYCLES.value
   return config
 
 
