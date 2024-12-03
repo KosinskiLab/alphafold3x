@@ -106,6 +106,27 @@ def _(_: atom_layout.AtomLayout) -> str:
 class InferenceTest(test_utils.StructureTestCase):
   """Test AlphaFold 3 inference."""
 
+  def __init__(self, methodName='runTest', test_input=None):
+    super().__init__(methodName)
+    self._test_input = {
+        'name': '5tgy',
+        'modelSeeds': [1234],
+        'sequences': [
+            {
+                'protein': {
+                    'id': 'A',
+                    'sequence': 'SEFEKLRQTGDELVQAFQRLREIFDKGDDDSLEQVLEEIEELIQKHRQLFDNRQEAADTEAAKQGDQWVQLFQRFREAIDKGDKDSLEQLLEELEQALQKIRELAEKKN',
+                    'modifications': [],
+                    'unpairedMsa': None,
+                    'pairedMsa': None,
+                }
+            },
+            {'ligand': {'id': 'B', 'ccdCodes': ['7BU']}},
+        ],
+        'dialect': folding_input.JSON_DIALECT,
+        'version': folding_input.JSON_VERSION,
+    }
+
   def setUp(self):
     super().setUp()
     small_bfd_database_path = testing_data.Data(
@@ -161,25 +182,8 @@ class InferenceTest(test_utils.StructureTestCase):
         seqres_database_path=seqres_database_path,
         max_template_date=datetime.date(2021, 9, 30),
     )
-    test_input = {
-        'name': '5tgy',
-        'modelSeeds': [1234],
-        'sequences': [
-            {
-                'protein': {
-                    'id': 'A',
-                    'sequence': 'SEFEKLRQTGDELVQAFQRLREIFDKGDDDSLEQVLEEIEELIQKHRQLFDNRQEAADTEAAKQGDQWVQLFQRFREAIDKGDKDSLEQLLEELEQALQKIRELAEKKN',
-                    'modifications': [],
-                    'unpairedMsa': None,
-                    'pairedMsa': None,
-                }
-            },
-            {'ligand': {'id': 'B', 'ccdCodes': ['7BU']}},
-        ],
-        'dialect': folding_input.JSON_DIALECT,
-        'version': folding_input.JSON_VERSION,
-    }
-    self._test_input_json = json.dumps(test_input)
+
+    self._test_input_json = json.dumps(self._test_input)
     self._runner = run_alphafold.ModelRunner(
         model_class=run_alphafold.diffusion_model.Diffuser,
         config=run_alphafold.make_model_config(),
@@ -403,6 +407,47 @@ class InferenceTest(test_utils.StructureTestCase):
             actual_inf.predicted_structure.atom_occupancy,
             [1.0] * actual_inf.predicted_structure.num_atoms,
         )
+
+class CrosslinkInferenceTest(InferenceTest):
+  """Test AlphaFold 3 inference."""
+
+  def __init__(self, methodName='runTest', test_input=None):
+    super().__init__(methodName)
+    self._test_input = test_input or {
+        'name': '5tgy',
+        'modelSeeds': [1234],
+        'sequences': [
+            {
+                'protein': {
+                    'id': 'A',
+                    'sequence': 'SEFEKLRQTGDELVQAFQRLREIFDKGDDDSLEQVLEEIEELIQKHRQLFDNRQEAADTEAAKQGDQWVQLFQRFREAIDKGDKDSLEQLLEELEQALQKIRELAEKKN',
+                    'modifications': [],
+                    'unpairedMsa': None,
+                    'pairedMsa': None,
+                }
+            },
+            {
+                'protein': {
+                    'id': 'B',
+                    'sequence': 'SEFEKLRQTGDELVQAFQRLREIFDKGDDDSLEQVLEEIEELIQKHRQLFDNRQEAADTEAAKQGDQWVQLFQRFREAIDKGDKDSLEQLLEELEQALQKIRELAEKKN',
+                    'modifications': [],
+                    'unpairedMsa': None,
+                    'pairedMsa': None,
+                }
+            }
+        ],
+        'crosslinks': [
+            {
+                'name': 'AzideDSBSO',
+                'residue_pairs': [
+                  (("A", 5), ("B", 5)),
+                  (("A", 81), ("B", 81)),
+                ]
+            }
+        ],
+        'dialect': folding_input.JSON_DIALECT,
+        'version': folding_input.JSON_VERSION,
+    }
 
 
 if __name__ == '__main__':

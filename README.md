@@ -1,16 +1,126 @@
+![header](docs/header3x.jpg)
+
+# Custom fork of AlphaFold 3 enabling explicit modeling of crosslinks
+
+**Warning: This is a custom fork and not the official version. In active development. Code quick and dirty, don't look. Bugs expected. Out of sync with upstream. Use at your own risk. Fixes and PRs welcome.**
+
+By Agnieszka Obarska-Kosinska (idea and crosslink definitions) and Jan Kosinski (implementation).
+
+Most crosslink-based modeling programs implicitly model crosslinks by adding distance restraints between crosslinked residues. This program explicitly models crosslinks by adding crosslinker molecules as ligands and setting bonds to the crosslinked residues. This allows for more realistic modeling of crosslinks, and sometimes gives good results. The results are also more visually appealing. 
+
+Usage:
+
+1. Install AlphaFold 3 as per the instructions in the original README below.
+1. Clone this repo
+1. Install, for example like this:
+    ```bash
+    module load GCCcore/12.3.0
+    module load Mamba
+
+    mamba create -n alphafold3x python=3.11 -y
+    source activate alphafold3x
+
+    cd alphafold3x
+    pip install -r dev-requirements.txt
+
+    # Install the package in editable mode without dependencies
+    pip install --no-deps .
+
+    build_data
+    ```
+1. Add crosslinks to your JSON following this format:
+    ```json
+        "crosslinks": [
+            {
+                "name": "DSSO",
+                "residue_pairs": [
+                    [["B", 53], ["C", 66]],
+                    [["B", 54], ["C", 66]],
+                    [["B", 54], ["C", 113]],
+                    [["B", 53], ["C", 113]],
+                    [["B", 54], ["C", 106]],
+                    [["B", 67], ["C", 129]],
+                    [["B", 208], ["C", 129]],
+                    [["A", 1], ["C", 91]],
+                    [["A", 1], ["C", 99]],
+                    [["A", 1], ["C", 90]],
+                    [["A", 49], ["C", 113]],
+                    [["A", 145], ["C", 129]]
+                ]
+            },
+            {
+                "name": "azide-A-DSBSO",
+                "residue_pairs": [
+                    ...
+                ]
+            }
+        ]
+    ```
+    for example:
+    ```json
+    {
+        "name": "9G5K",
+        "modelSeeds": [
+            1
+        ],
+        "sequences": [
+            {
+                "protein": {
+                    "id": "A",
+                    "sequence": "MDCYRTSLSSSWIYPTVILCLFGFFSMMRPSEPFLIPYLSGPDKNLTSAEITNEIFPVWTYSYLVLLLPVFVLTDYVRYKPVIILQGISFIITWLLLLFGQGVKTMQVVEFFYGMVTAAEVAYYAYIYSVVSPEHYQRVSGYCRSVTLAAYTAGSVLAQLLVSLANMSYFYLNVISLASVSVAFLFSLFLPMPKKSMFFHAKPSREIKKSSSVNPVLEETHEGEAPGCEEQKPTSEILSTSGKLNKGQLNSLKPSNVTVDVFVQWFQDLKECYSSKRLFYWSLWWAFATAGFNQVLNYVQILWDYKAPSQDSSIYNGAVEAIATFGGAVAAFAVGYVKVNWDLLGELALVVFSVVNAGSLFLMHYTANIWACYAGYLIFKSSYMLLITIAVFQIAVNLNVERYALVFGINTFIALVIQTIMTVIVVDQRGLNLPVSIQFLVYGSYFAVIAGIFLMRSMYITYSTKSQKDVQSPAPSENPDVSHPEEESNIIMSTKL"
+                }
+            },
+            {
+                "protein": {
+                    "id": "B",
+                    "sequence": "QVQLVESGGGLVQAGDSLRLSCAASGRTFSNYYMAWFRQAPGKEREFVAAIRLSYGSTYYADSVRGRFTISKDNAKNTVNLRMNSLKSEDTAIYYCAAAEDRWALAVRTATTYNYWGQGTQVTVSSHHHHHHEPEA"
+                }
+            }
+        ],
+        "dialect": "alphafold3",
+        "version": 1,
+        "crosslinks": [
+            {
+                "name": "azide-A-DSBSO",
+                "residue_pairs": [
+                    [["A", 104], ["B", 43]]
+                ]
+            }
+        ]
+    }
+
+    ```
+    Supported crosslinkers:
+    - DSSO
+    - DSS
+    - DSG
+    - BS3
+    - azide-A-DSBSO
+1. Run AlphaFold 3 as per the instructions in the original README below. Crosslinks will be added automatically.
+
+    Additional flags:
+    ```bash
+    --sample_crosslinks=<integer> # Enumarate all possible combinations of crosslinks with length equal to sample_crosslinks value and run inference for each combination. Default is do not sample.
+    --reject_overlapping_crosslinks=true|false # If set to true, remove any crosslinks that link to residues with already added crosslinks. Default is true.
+    --num_seeds=<integer> # Number of seeds to sample. Default is use the seeds from your input JSON but we recommend to use at least 20 seeds (with the default 5 diffusion samples per seed, it gives 100 models).
+    ```
+
+## Observations:
+
+- This sometimes works.
+- Sometimes it doesn't.
+- When not all crosslinks can be satisfied at the same time, AF3 will sometimes form some crosslinks but break bonds for others, kind off ignoring imcompatible crosslinks (this is good).
+
+## How to add your own crosslinker type?
+
+Find the fle `alphafold3x/alphafold3/src/alphafold3/crosslinks/crosslink_definitions.py` and add your own crosslinker definition by following the provided examples. Reinstall the package with `pip install --no-deps .` and you are ready to go.
+
+## Test data
+The test data is available in `alphafold3x/alphafold3/src/alphafold3/test_data/crosslinks` folder.
+
+# OIRIGINAL ALPHAFOLD3 README
+
 ![header](docs/header.jpg)
-
-# Custom fork of AlphaFold 3 with some trivial modifications
-
-The modfications are:
-
-* --num_seeds flag added to run_alphafold.py to run multiple seeds automatically
-* --num_recycles flag added to run_alphafold.py to set the number of trunk recycles (default 10)
-* Saving output files and printing logs as they come in
-* wiki doc page [docs/wiki.md](docs/wiki.md)
-
-Warning: This is a custom fork and not the official version. In active dev. Bugs expected. Use at your own risk. Fixes and PRs welcome.
-____
 
 This package provides an implementation of the inference pipeline of AlphaFold
 3. See below for how to access the model parameters. You may only use AlphaFold

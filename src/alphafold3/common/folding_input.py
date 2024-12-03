@@ -24,10 +24,12 @@ from alphafold3 import structure
 from alphafold3.constants import chemical_components
 from alphafold3.constants import mmcif_names
 from alphafold3.constants import residue_names
+from alphafold3.constants import atom_types
 from alphafold3.structure import mmcif as mmcif_lib
 import rdkit.Chem as rd_chem
 
-
+from alphafold3.crosslinks import crosslink_definitions
+from alphafold3.structure.mmcif import int_id_to_str_id
 BondAtomId: TypeAlias = tuple[str, int, str]
 
 JSON_DIALECT: Final[str] = 'alphafold3'
@@ -527,6 +529,8 @@ class Input:
   rng_seeds: Sequence[int]
   bonded_atom_pairs: Sequence[tuple[BondAtomId, BondAtomId]] | None = None
   user_ccd: str | None = None
+  crosslinks: Sequence[Mapping[str, Any]] | None = None
+  parent_name: str | None = None #Parent job name for useful for iterative jobs
 
   def __post_init__(self):
     if not self.rng_seeds:
@@ -575,7 +579,7 @@ class Input:
     # Validate the fold job has the correct format.
     _validate_keys(
         fold_job.keys(),
-        {'name', 'modelSeeds', 'sequences', 'dialect', 'version'},
+        {'name', 'modelSeeds', 'sequences', 'dialect', 'version', 'parentName'},
     )
     if 'dialect' not in fold_job and 'version' not in fold_job:
       dialect = ALPHAFOLDSERVER_JSON_DIALECT
@@ -658,7 +662,7 @@ class Input:
     return cls(name=fold_job['name'], chains=chains, rng_seeds=rng_seeds)
 
   @classmethod
-  def from_json(cls, json_str: str) -> Self:
+  def from_json(cls, json_str: str, expand_crosslinks: bool = False) -> Self:
     """Loads the input from the AlphaFold JSON string."""
     raw_json = json.loads(json_str)
 
@@ -672,6 +676,8 @@ class Input:
             'sequences',
             'bondedAtomPairs',
             'userCCD',
+            'crosslinks',
+            'parentName'
         },
     )
 
@@ -701,6 +707,123 @@ class Input:
           'AlphaFold 3 input JSON must specify at least one rng seed in'
           ' `modelSeeds`.'
       )
+    
+
+    if expand_crosslinks and raw_json.get('crosslinks'):
+      logging.info(
+          'Adding crosslinks'
+      )
+
+      if not raw_json.get('userCCD'):
+        raw_json['userCCD'] = ''
+      if not raw_json.get('bondedAtomPairs'):
+        raw_json['bondedAtomPairs'] = []
+      
+      def get_current_id_sequence_map():
+        id_to_sequence_map = {}
+        for s_group in raw_json['sequences']:
+          for s in s_group.values():
+            sequence_id = s.get('id')
+            if isinstance(sequence_id, list):
+              for seq_id in sequence_id:
+                id_to_sequence_map[seq_id] = s
+            else:
+              id_to_sequence_map[sequence_id] = s
+
+        return id_to_sequence_map
+
+      added = []
+      #TODO: add reading crosslinks json into a class
+      for xlinkset in raw_json['crosslinks']:
+        print(xlinkset)
+        #TODO: add validation
+
+        xlinkname = xlinkset['name']
+
+        if xlinkname not in crosslink_definitions.CROSSLINKS:
+          raise ValueError(f'Crosslink {xlinkname} not found in crosslink_definitions.py')
+
+        crosslink_def = crosslink_definitions.CROSSLINKS[xlinkname]
+        raw_json['userCCD'] += crosslink_def['userCCD']
+        added.append(xlinkname)
+
+        ligand = {
+          "ligand": {
+            "id": [],
+            "ccdCodes": [crosslink_def["ccdCode"]]
+          }
+        }
+        raw_json['sequences'].append(ligand)
+
+        def is_restype_matching(restype, resid, expected_restypes):
+          if restype in expected_restypes:
+            return True
+          if resid == 1 and 'NTER' in expected_restypes:
+            return True
+          return False
+
+        def is_atom_in_residue(atom, restype):
+          expected_atoms = atom_types.RESIDUE_ATOMS.get(restype, [])
+          if atom in expected_atoms:
+            return True
+
+        def get_bond_atom1(bond_id, restype, resid, crosslink_def):
+          bond_atomtypes1 = crosslink_def[f"bond{bond_id}"]["atom1"]["atomtypes"]
+          #TODO: this prioritizes the first atom type, should be smarter
+          for a in bond_atomtypes1:
+            if a['restype'] == restype:
+              return a['atomname']
+          for a in bond_atomtypes1:
+            if a['restype'] == 'NTER' and resid == 1:
+              return a['atomname']
+          
+
+        for resi1, resi2 in xlinkset['residue_pairs']:
+          chain_id1, resid1 = resi1
+          chain_id2, resid2 = resi2
+
+          bond1_atomtypes = crosslink_def["bond1"]["atom1"]["atomtypes"]
+          bond2_atomtypes = crosslink_def["bond2"]["atom1"]["atomtypes"]
+
+          bond1_restypes1 = [a['restype'] for a in bond1_atomtypes]
+          bond2_restypes1 = [a['restype'] for a in bond2_atomtypes]
+
+          #TODO: code redundancy
+          id_sequence_map = get_current_id_sequence_map()
+          actual_restype1 = residue_names.PROTEIN_COMMON_ONE_TO_THREE[id_sequence_map[chain_id1]['sequence'][resid1-1]]
+          actual_restype2 = residue_names.PROTEIN_COMMON_ONE_TO_THREE[id_sequence_map[chain_id2]['sequence'][resid2-1]]
+          if not is_restype_matching(actual_restype1, resid1, bond1_restypes1):
+            raise ValueError(f'Crosslink residue {resid1} {actual_restype1} chain {chain_id1} does not match expected {bond1_restypes1}')
+          if not is_restype_matching(actual_restype2, resid2, bond2_restypes1):
+            raise ValueError(f'Crosslink residue {resi2} {actual_restype2} chain {chain_id2} does not match expected {bond2_restypes1}')
+
+          bond1_atom1 = get_bond_atom1(1, actual_restype1, resid1, crosslink_def)
+          bond2_atom1 = get_bond_atom1(2, actual_restype2, resid2, crosslink_def)
+          bond1_atom2 = crosslink_def["bond1"]["atom2"]["atomname"]
+          bond2_atom2 = crosslink_def["bond2"]["atom2"]["atomname"]
+
+          if not is_atom_in_residue(bond1_atom1, actual_restype1):
+            raise ValueError(f'Crosslink atom {bond1_atom1} of {resid1} {actual_restype1} chain {chain_id1} not found in residue {actual_restype1}')
+          if not is_atom_in_residue(bond2_atom1, actual_restype2):
+            raise ValueError(f'Crosslink atom {bond2_atom1} of {resi2} {actual_restype2} chain {chain_id2} not found in residue {actual_restype2}')
+            
+          sequence_ids = list(id_sequence_map.keys())
+          #find chain id
+          i = 1
+          while True:
+            xlink_chain_id = int_id_to_str_id(i)
+            if xlink_chain_id not in sequence_ids:
+              ligand['ligand']['id'].append(xlink_chain_id)
+              break
+            i += 1
+
+          xlink_resid = 1 #TODO: add to crosslink definition?
+
+          #TODO: find bonded atoms smartly if crosslinker is not symmetric
+          raw_json['bondedAtomPairs'].extend([
+            [[chain_id1, resid1, bond1_atom1], [xlink_chain_id, xlink_resid, bond1_atom2]],
+            [[chain_id2, resid2, bond2_atom1], [xlink_chain_id, xlink_resid, bond2_atom2]]
+          ])
 
     sequences = raw_json['sequences']
 
@@ -781,12 +904,16 @@ class Input:
           )
         bonded_atom_pairs.append((tuple(bond_beg), tuple(bond_end)))
 
+
+
     return cls(
         name=raw_json['name'],
         chains=chains,
         rng_seeds=[int(seed) for seed in raw_json['modelSeeds']],
         bonded_atom_pairs=bonded_atom_pairs,
         user_ccd=raw_json.get('userCCD'),
+        crosslinks=raw_json.get('crosslinks'),
+        parent_name=raw_json.get('parentName'),
     )
 
   @classmethod
@@ -974,6 +1101,7 @@ class Input:
             'modelSeeds': self.rng_seeds,
             'bondedAtomPairs': self.bonded_atom_pairs,
             'userCCD': self.user_ccd,
+            'parentName': self.parent_name
         },
         indent=2,
     )
@@ -997,12 +1125,16 @@ class Input:
     ]
     return dataclasses.replace(self, chains=with_missing_fields)
 
+  @staticmethod
+  def get_sanitised_name(name) -> str:
+    """Returns sanitised version of the name that can be used as a filename."""
+    lower_spaceless_name = name.lower().replace(' ', '_')
+    allowed_chars = set(string.ascii_lowercase + string.digits + '_-.')
+    return ''.join(l for l in lower_spaceless_name if l in allowed_chars)    
+
   def sanitised_name(self) -> str:
     """Returns sanitised version of the name that can be used as a filename."""
-    lower_spaceless_name = self.name.lower().replace(' ', '_')
-    allowed_chars = set(string.ascii_lowercase + string.digits + '_-.')
-    return ''.join(l for l in lower_spaceless_name if l in allowed_chars)
-
+    return self.get_sanitised_name(self.name)
 
 def check_unique_sanitised_names(fold_inputs: Sequence[Input]) -> None:
   """Checks that the names of the fold inputs are unique."""
@@ -1013,7 +1145,7 @@ def check_unique_sanitised_names(fold_inputs: Sequence[Input]) -> None:
     )
 
 
-def load_fold_inputs_from_path(json_path: pathlib.Path) -> Sequence[Input]:
+def load_fold_inputs_from_path(json_path: pathlib.Path, expand_crosslinks: bool = False) -> Sequence[Input]:
   """Loads multiple fold inputs from a JSON string."""
   with open(json_path, 'r') as f:
     json_str = f.read()
@@ -1047,7 +1179,7 @@ def load_fold_inputs_from_path(json_path: pathlib.Path) -> Sequence[Input]:
     )
     # AlphaFold 3 JSON.
     try:
-      fold_inputs.append(Input.from_json(json_str))
+      fold_inputs.append(Input.from_json(json_str, expand_crosslinks=expand_crosslinks))
     except ValueError as e:
       raise ValueError(
           f'Failed to load fold input from {json_path}. The JSON at'

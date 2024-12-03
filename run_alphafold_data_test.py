@@ -101,6 +101,27 @@ def _generate_diff(actual: str, expected: str) -> str:
 class DataPipelineTest(test_utils.StructureTestCase):
   """Test AlphaFold 3 inference."""
 
+  def __init__(self, methodName='runTest', test_input=None):
+    super().__init__(methodName)
+    self._test_input = test_input or {
+        'name': '5tgy',
+        'modelSeeds': [1234],
+        'sequences': [
+            {
+                'protein': {
+                    'id': 'A',
+                    'sequence': 'SEFEKLRQTGDELVQAFQRLREIFDKGDDDSLEQVLEEIEELIQKHRQLFDNRQEAADTEAAKQGDQWVQLFQRFREAIDKGDKDSLEQLLEELEQALQKIRELAEKKN',
+                    'modifications': [],
+                    'unpairedMsa': None,
+                    'pairedMsa': None,
+                }
+            },
+            {'ligand': {'id': 'B', 'ccdCodes': ['7BU']}},
+        ],
+        'dialect': folding_input.JSON_DIALECT,
+        'version': folding_input.JSON_VERSION,
+    }
+
   def setUp(self):
     super().setUp()
     small_bfd_database_path = testing_data.Data(
@@ -156,25 +177,8 @@ class DataPipelineTest(test_utils.StructureTestCase):
         seqres_database_path=seqres_database_path,
         max_template_date=datetime.date(2021, 9, 30),
     )
-    test_input = {
-        'name': '5tgy',
-        'modelSeeds': [1234],
-        'sequences': [
-            {
-                'protein': {
-                    'id': 'A',
-                    'sequence': 'SEFEKLRQTGDELVQAFQRLREIFDKGDDDSLEQVLEEIEELIQKHRQLFDNRQEAADTEAAKQGDQWVQLFQRFREAIDKGDKDSLEQLLEELEQALQKIRELAEKKN',
-                    'modifications': [],
-                    'unpairedMsa': None,
-                    'pairedMsa': None,
-                }
-            },
-            {'ligand': {'id': 'B', 'ccdCodes': ['7BU']}},
-        ],
-        'dialect': folding_input.JSON_DIALECT,
-        'version': folding_input.JSON_VERSION,
-    }
-    self._test_input_json = json.dumps(test_input)
+
+    self._test_input_json = json.dumps(self._test_input)
 
   def compare_golden(self, result_path: str) -> None:
     filename = os.path.split(result_path)[1]
@@ -274,6 +278,105 @@ class DataPipelineTest(test_utils.StructureTestCase):
           f'${{DB_DIR}}/filename{num_db_dirs}.txt', db_dirs_posix
       )
 
+class CrosslinkDataPipelineTest(DataPipelineTest):
+  """Test AlphaFold 3 inference."""
+
+  def __init__(self, methodName='runTest', test_input=None):
+    super().__init__(methodName)
+    self._test_input = test_input or {
+        'name': '5tgy',
+        'modelSeeds': [1234],
+        'sequences': [
+            {
+                'protein': {
+                    'id': 'A',
+                    'sequence': 'SEFEKLRQTGDELVQAFQRLREIFDKGDDDSLEQVLEEIEELIQKHRQLFDNRQEAADTEAAKQGDQWVQLFQRFREAIDKGDKDSLEQLLEELEQALQKIRELAEKKN',
+                    'modifications': [],
+                    'unpairedMsa': None,
+                    'pairedMsa': None,
+                }
+            },
+            {
+                'protein': {
+                    'id': 'B',
+                    'sequence': 'SEFEKLRQTGDELVQAFQRLREIFDKGDDDSLEQVLEEIEELIQKHRQLFDNRQEAADTEAAKQGDQWVQLFQRFREAIDKGDKDSLEQLLEELEQALQKIRELAEKKN',
+                    'modifications': [],
+                    'unpairedMsa': None,
+                    'pairedMsa': None,
+                }
+            }
+        ],
+        'crosslinks': [
+            {
+                'name': 'azide-A-DSBSO',
+                'residue_pairs': [
+                  (("A", 5), ("B", 5)),
+                  (("A", 81), ("B", 81)),
+                ]
+            }
+        ],
+        'dialect': folding_input.JSON_DIALECT,
+        'version': folding_input.JSON_VERSION,
+    }
+    self.expected_bonded_atom_pairs = (
+        (('A', 5, 'NZ'), ('C', 1, 'C16')),
+        (('B', 5, 'NZ'), ('C', 1, 'C31')),
+        (('A', 81, 'NZ'), ('D', 1, 'C16')),
+        (('B', 81, 'NZ'), ('D', 1, 'C31')),
+      )
+    
+    self.expected_ligands = [
+      {
+        "ligand": {
+        "id": [ "C"],
+        "ccdCodes": ["azide-A-DSBSO"]
+        }
+      },
+      {
+        "ligand": {
+        "id": [ "D"],
+        "ccdCodes": ["azide-A-DSBSO"]
+        }
+     }
+    ]
+
+  def compare_golden(self, result_path: str) -> None:
+    raise NotImplementedError
+
+  def test_add_xlinks(self):
+    fold_input = folding_input.Input.from_json(self._test_input_json, expand_crosslinks=True)
+    self.assertEqual(len(fold_input.bonded_atom_pairs), len(self.expected_bonded_atom_pairs))
+    self.assertEqual(
+      fold_input.bonded_atom_pairs,
+      self.expected_bonded_atom_pairs
+    )
+    self.assertTrue(fold_input.user_ccd)
+
+
+    output_dir = self.create_tempdir()
+    run_alphafold.write_fold_input_json(fold_input, output_dir)
+    with open(
+        os.path.join(output_dir, f'{fold_input.sanitised_name()}_data.json'),
+        'rt',
+    ) as f:
+      out_json = json.load(f)
+
+class CrosslinkDataPipelineTest4G3Y(CrosslinkDataPipelineTest):
+  """Test AlphaFold 3 inference."""
+
+  def __init__(self, methodName='runTest', test_input=None):
+    super().__init__(methodName)
+    fn = testing_data.Data(
+        resources.ROOT
+        / 'test_data/crosslinks/4G3Y/4G3Y.json').path()
+    with open(fn, 'r') as f:
+      self._test_input = json.load(f)
+
+      self.expected_bonded_atom_pairs_len = 24
+
+  def test_add_xlinks(self):
+    fold_input = folding_input.Input.from_json(self._test_input_json, expand_crosslinks=True)
+    self.assertEqual(len(fold_input.bonded_atom_pairs), self.expected_bonded_atom_pairs_len)
 
 if __name__ == '__main__':
   absltest.main()

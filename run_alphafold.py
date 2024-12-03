@@ -34,6 +34,8 @@ import textwrap
 import time
 import typing
 from typing import Protocol, Self, TypeVar, overload
+import json
+import itertools
 
 from absl import app
 from absl import flags
@@ -252,8 +254,8 @@ _NUM_DIFFUSION_SAMPLES = flags.DEFINE_integer(
 # Number of seeds to use for inference.
 _NUM_SEEDS = flags.DEFINE_integer(
   'num_seeds',
-  1,
-  'Number of seeds to use for inference. It will generate random seeds and overwrite the seeds in the input JSON file.',
+  0,
+  'Number of seeds to use for inference. It will generate random seeds and overwrite the seeds in the input JSON file. Default: read from JSON',
 )
 
 _NUM_RECYCLES = flags.DEFINE_integer(
@@ -261,6 +263,19 @@ _NUM_RECYCLES = flags.DEFINE_integer(
   10,
   'Number of recycles to use during inference.',
 )
+
+_SAMPLE_CROSSLINKS = flags.DEFINE_integer(
+  'sample_crosslinks',
+  0,
+  'Enumarate all possible combinations of crosslinks with length equal to sample_crosslinks value and run inference for each combination.',
+)
+
+_REJECT_OVERLAPPING_CROSSLINKS = flags.DEFINE_bool(
+  'reject_overlapping_crosslinks',
+  True,
+  'If True, remove any crosslinks that link to residues with already added crosslinks.',
+)
+
 
 class ConfigurableModel(Protocol):
   """A model with a nested config class."""
@@ -557,6 +572,7 @@ def process_fold_input(
     output_dir: os.PathLike[str] | str,
     buckets: Sequence[int] | None = None,
     return_all_inference_results: bool = False,
+    overwrite_output_dir: bool = False, #Needed because we create temp jsons in the outdir and then AF3 creates a new dir with the same name but with date and time string added
 ) -> folding_input.Input | Sequence[ResultsForSeed]:
   """Runs data pipeline and/or inference on a single fold input.
 
@@ -583,7 +599,7 @@ def process_fold_input(
   if not fold_input.chains:
     raise ValueError('Fold input has no chains.')
 
-  if os.path.exists(output_dir) and os.listdir(output_dir):
+  if os.path.exists(output_dir) and os.listdir(output_dir) and not overwrite_output_dir:
     new_output_dir = (
         f'{output_dir}_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}'
     )
@@ -704,7 +720,8 @@ def set_seeds(fold_input: folding_input.Input, num_seeds: int) -> folding_input.
         chains=fold_input.chains,
         rng_seeds=seeds,
         bonded_atom_pairs=fold_input.bonded_atom_pairs,
-        user_ccd=fold_input.user_ccd
+        user_ccd=fold_input.user_ccd,
+        parent_name=fold_input.parent_name,
     )
 
 def main(_):
@@ -724,18 +741,103 @@ def main(_):
         ' set to true.'
     )
 
+
   if _INPUT_DIR.value is not None:
-    fold_inputs = folding_input.load_fold_inputs_from_dir(
-        pathlib.Path(_INPUT_DIR.value)
-    )
+    input_jsons = list(pathlib.Path(_INPUT_DIR.value).glob('*.json'))
   elif _JSON_PATH.value is not None:
-    fold_inputs = folding_input.load_fold_inputs_from_path(
-        pathlib.Path(_JSON_PATH.value)
-    )
+    input_jsons = [pathlib.Path(_JSON_PATH.value)]
   else:
     raise AssertionError(
         'Exactly one of --json_path or --input_dir must be specified.'
     )
+    
+  input_json_objects = []
+  for input_json in input_jsons:
+    with open(input_json, 'rt') as f:
+      #TODO: validate here?
+      input_json_objects.append({
+        'original_path': input_json, #Keep track of the original path to load non-crosslink jsons using the native mechanism and json validation
+        'data': json.load(f)
+      })
+
+  if _RUN_INFERENCE.value and _SAMPLE_CROSSLINKS.value > 0:
+      #TODO: support multiple fold inputs in same json file
+
+    input_json_objects_temp = []
+    for ori_json_data in input_json_objects:
+      if ori_json_data['data'].get('crosslinks'):
+        #TODO: validate crosslinks
+        for xlink_set in ori_json_data['data']['crosslinks']:
+          crosslinks = []
+          for xlink in xlink_set['residue_pairs']:
+            crosslinks.append({
+                'name': xlink_set['name'],
+                'residue1': xlink[0],
+                'residue2': xlink[1]
+            })
+        combinations = list(itertools.combinations(crosslinks, _SAMPLE_CROSSLINKS.value))
+        for comb in combinations:
+          new_json_data = ori_json_data['data'].copy()
+          new_json_data['data']['parentName'] = ori_json_data['data']['name']
+          xlinks_strings = []
+          crosslinks = []
+          for xlink in comb:
+            residue1_str = f'{xlink["residue1"][0]}_{xlink["residue1"][1]}'
+            residue2_str = f'{xlink["residue2"][0]}_{xlink["residue2"][1]}'
+            xlinks_strings.append(f'{xlink["name"]}_{residue1_str}_{residue2_str}')
+            crosslinks.append({
+                'name': xlink['name'],
+                'residue_pairs': [[xlink['residue1'], xlink['residue2']]]
+            })
+          new_json_data['data']['crosslinks'] = crosslinks
+          ori_job_name = ori_json_data['data']['name']
+          new_job_name = f'{folding_input.Input.get_sanitised_name(ori_job_name)}_{"_".join(xlinks_strings)}'          
+          new_json_data['name'] = new_job_name
+
+          input_json_objects_temp.append({
+            'original_path': None,
+            'data': new_json_data
+          })
+      else:
+        input_json_objects_temp.append(ori_json_data)
+
+    input_json_objects = input_json_objects_temp
+      
+  if _RUN_INFERENCE.value and _REJECT_OVERLAPPING_CROSSLINKS.value:
+    for ori_json_data in input_json_objects:
+      crosslinks = []
+      added = set()
+      if ori_json_data['data'].get('crosslinks'):
+        print('Checking for and rejecting overlapping crosslinks...')
+        for xlinkset in ori_json_data['data']['crosslinks']:
+          xlink_name = xlinkset['name']
+          newxlinkset = {'name': xlink_name, 'residue_pairs': []}
+          for xlink in xlinkset['residue_pairs']:
+            residue1_str = f'{xlink[0][0]}_{xlink[0][1]}'
+            residue2_str = f'{xlink[1][0]}_{xlink[1][1]}'
+            if residue1_str in added or residue2_str in added:
+              print(f'Skipping crosslink {xlink_name} between {residue1_str} and {residue2_str} because it links to residues with already added crosslinks.')
+              continue
+            added.add(residue1_str)
+            added.add(residue2_str)
+            newxlinkset['residue_pairs'].append(xlink)
+          crosslinks.append(newxlinkset)
+
+        ori_json_data['data']['crosslinks'] = crosslinks
+
+  fold_inputs = []
+  for json_data in input_json_objects:
+    if _RUN_INFERENCE.value and json_data['data'].get('crosslinks'):
+        ori_job_name = json_data['data']['name']
+        output_dir = os.path.join(_OUTPUT_DIR.value, folding_input.Input.get_sanitised_name(ori_job_name))
+        os.makedirs(output_dir, exist_ok=True)
+
+        new_json_path = pathlib.Path(output_dir) / f'{ori_job_name}.json'
+        with open(new_json_path, 'wt') as f:
+          json.dump(json_data['data'], f, indent=2)
+        fold_inputs.extend(folding_input.load_fold_inputs_from_path(new_json_path, expand_crosslinks=True))
+    else:
+      fold_inputs.extend(folding_input.load_fold_inputs_from_path(json_data['original_path']))
 
   # Make sure we can create the output directory before running anything.
   try:
@@ -818,13 +920,19 @@ def main(_):
 
   print(f'Processing {len(fold_inputs)} fold inputs.')
   for fold_input in fold_inputs:
-    fold_input = set_seeds(fold_input, _NUM_SEEDS.value)
+    if _NUM_SEEDS.value > 0:
+      fold_input = set_seeds(fold_input, _NUM_SEEDS.value)
+    if fold_input.parent_name:
+      output_dir = os.path.join(_OUTPUT_DIR.value, Input.get_sanitised_name(fold_input.parent_name))
+    else:
+      output_dir = os.path.join(_OUTPUT_DIR.value, fold_input.sanitised_name())
     process_fold_input(
         fold_input=fold_input,
         data_pipeline_config=data_pipeline_config,
         model_runner=model_runner,
-        output_dir=os.path.join(_OUTPUT_DIR.value, fold_input.sanitised_name()),
+        output_dir=output_dir,
         buckets=tuple(int(bucket) for bucket in _BUCKETS.value),
+        overwrite_output_dir=True, #we may sort it out differently by saving the input jsons in some temp dir?
     )
 
   print(f'Done processing {len(fold_inputs)} fold inputs.')
