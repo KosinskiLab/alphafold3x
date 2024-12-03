@@ -121,7 +121,7 @@ Usage:
       }
   ]
 ``` 
-Disulfide bonds will be added by mutating the cysteins to alanine and adding an S-S covalent ligand. Thanks Konstantin Gilep for the idea.
+Disulfide bonds will be added by mutating the cysteines to alanine and adding an S-S covalent ligand. Thanks Konstantin Gilep for the idea.
 
 ## Zero-length crosslinks (coming soon)
 
