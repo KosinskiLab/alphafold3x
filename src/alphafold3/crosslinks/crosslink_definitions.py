@@ -841,6 +841,90 @@ _pdbx_chem_comp_descriptor.descriptor 'C1CC(=O)N(C1=O)OC(=O)CCCC(=O)ON2C(=O)CCC2
                 "atomname": "C14",
             }
         }
+    },
+        "S-S": {
+        "ccdCode": "S-S",
+        "userCCD": """data_S-S
+#
+_chem_comp.id S-S
+_chem_comp.name 'Disulfide bond'
+_chem_comp.type non-polymer
+_chem_comp.formula 'S2'
+_chem_comp.mon_nstd_parent_comp_id ?
+_chem_comp.pdbx_synonyms ?
+_chem_comp.formula_weight XXX
+#
+loop_
+_chem_comp_atom.comp_id
+_chem_comp_atom.atom_id
+_chem_comp_atom.alt_atom_id
+_chem_comp_atom.type_symbol
+_chem_comp_atom.charge
+_chem_comp_atom.pdbx_align
+_chem_comp_atom.pdbx_aromatic_flag
+_chem_comp_atom.pdbx_leaving_atom_flag
+_chem_comp_atom.pdbx_stereo_config
+_chem_comp_atom.pdbx_backbone_atom_flag
+_chem_comp_atom.pdbx_n_terminal_atom_flag
+_chem_comp_atom.pdbx_c_terminal_atom_flag
+_chem_comp_atom.model_Cartn_x
+_chem_comp_atom.model_Cartn_y
+_chem_comp_atom.model_Cartn_z
+_chem_comp_atom.pdbx_model_Cartn_x_ideal
+_chem_comp_atom.pdbx_model_Cartn_y_ideal
+_chem_comp_atom.pdbx_model_Cartn_z_ideal
+_chem_comp_atom.pdbx_component_atom_id
+_chem_comp_atom.pdbx_component_comp_id
+_chem_comp_atom.pdbx_ordinal
+S-S S1 S1 S 0 1 N N N N N N -0.943  0.513 -0.372 -0.943  0.513 -0.372 S1 S-S 1
+S-S S2 S2 S 0 1 N N N N N N 0.924  0.463  0.471 0.924  0.463  0.471 S2 S-S 2
+#
+loop_
+_chem_comp_bond.comp_id
+_chem_comp_bond.atom_id_1
+_chem_comp_bond.atom_id_2
+_chem_comp_bond.value_order
+_chem_comp_bond.pdbx_aromatic_flag
+_chem_comp_bond.pdbx_stereo_config
+_chem_comp_bond.pdbx_ordinal 
+S-S  S1  S2 SING N N 1
+#
+_pdbx_chem_comp_descriptor.type SMILES_CANONICAL
+_pdbx_chem_comp_descriptor.descriptor 'S-S'
+#
+""",
+        "bond1": {
+            "atom1": {
+                "moltype": "protein",
+                "atomtypes": [
+                    {
+                        "restype": "ALA",
+                        "atomname": "CB"
+                    }
+                ],
+            },
+            "atom2": {
+                "moltype": "ligand",
+                "restype": "S-S",
+                "atomname": "S1",
+            }
+        },
+        "bond2": {
+            "atom1": {
+                "moltype": "protein",
+                "atomtypes": [
+                    {
+                        "restype": "ALA",
+                        "atomname": "CB"
+                    }
+                ],
+            },
+            "atom2": {
+                "moltype": "ligand",
+                "restype": "S-S",
+                "atomname": "S2",
+            }
+        }
     }
 
 #TODO: add more crosslinkers from https://www.rappsilberlab.org/software/xisearch/#crosslinker-selection-presets

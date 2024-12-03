@@ -378,5 +378,37 @@ class CrosslinkDataPipelineTest4G3Y(CrosslinkDataPipelineTest):
     fold_input = folding_input.Input.from_json(self._test_input_json, expand_crosslinks=True)
     self.assertEqual(len(fold_input.bonded_atom_pairs), self.expected_bonded_atom_pairs_len)
 
+class DisulfideDataPipelineTest8WW0(CrosslinkDataPipelineTest):
+  """Test AlphaFold 3 inference."""
+
+  def __init__(self, methodName='runTest', test_input=None):
+    super().__init__(methodName)
+    fn = testing_data.Data(
+        resources.ROOT
+        / 'test_data/crosslinks/8WW0/8WW0_disulfide_test.json').path()
+    with open(fn, 'r') as f:
+      self._test_input = json.load(f)
+
+      self.expected_bonded_atom_pairs_len = 8
+
+  def test_add_disulfide_bonds_expand(self):
+    fold_input = folding_input.Input.from_json(self._test_input_json, expand_crosslinks=True)
+    chain = fold_input.protein_chains[0]
+
+    self.assertEqual(chain.sequence, 'SAPGEANAHWELFAEEGRLATGYRHAVAPPSA')
+    self.assertStartsWith(chain.unpaired_msa, '>query\nSAPGEANAHWELFAEEGRLATGYRHAVAPPSA')
+    self.assertStartsWith(chain.paired_msa, '>query\nSAPGEANAHWELFAEEGRLATGYRHAVAPPSA')
+    self.assertEqual(len(fold_input.bonded_atom_pairs), self.expected_bonded_atom_pairs_len)
+    self.assertIsNone(fold_input.disulfide_bonds)
+
+  def test_add_disulfide_bonds_noexpand(self):
+    fold_input = folding_input.Input.from_json(self._test_input_json, expand_crosslinks=False)
+    chain = fold_input.protein_chains[0]
+    self.assertEqual(chain.sequence, 'SCPGECNCHWELFCEEGRLCTGYRHCVCPPSC')
+    self.assertStartsWith(chain.unpaired_msa, '>query\nSCPGECNCHWELFCEEGRLCTGYRHCVCPPSC')
+    self.assertStartsWith(chain.paired_msa, '>query\nSCPGECNCHWELFCEEGRLCTGYRHCVCPPSC')
+    self.assertIsNone(fold_input.bonded_atom_pairs)
+    self.assertIsNotNone(fold_input.disulfide_bonds)
+
 if __name__ == '__main__':
   absltest.main()

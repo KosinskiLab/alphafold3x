@@ -105,6 +105,28 @@ Usage:
     --num_seeds=<integer> # Number of seeds to sample. Default is use the seeds from your input JSON but we recommend to use at least 20 seeds (with the default 5 diffusion samples per seed, it gives 100 models).
     ```
 
+# Even more experimental features
+
+## Disulfide bonds
+
+```json
+  "disulfide_bonds": [
+      {
+          "residue_pairs": [
+              [["A", 14], ["A", 20]],
+              [["A", 8], ["A", 26]],
+              [["A", 6], ["A", 28]],
+              [["A", 2], ["A", 32]]
+          ]
+      }
+  ]
+``` 
+Disulfide bonds will be added by mutating the cysteins to alanine and adding an S-S covalent ligand. Thanks Konstantin Gilep for the idea.
+
+## Zero-length crosslinks (coming soon)
+
+By this point you might know how it will be done.
+
 ## Observations:
 
 - This sometimes works.

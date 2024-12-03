@@ -530,6 +530,7 @@ class Input:
   bonded_atom_pairs: Sequence[tuple[BondAtomId, BondAtomId]] | None = None
   user_ccd: str | None = None
   crosslinks: Sequence[Mapping[str, Any]] | None = None
+  disulfide_bonds: Sequence[Mapping[str, Any]] | None = None
   parent_name: str | None = None #Parent job name for useful for iterative jobs
 
   def __post_init__(self):
@@ -677,6 +678,7 @@ class Input:
             'bondedAtomPairs',
             'userCCD',
             'crosslinks',
+            'disulfide_bonds',
             'parentName'
         },
     )
@@ -707,7 +709,69 @@ class Input:
           'AlphaFold 3 input JSON must specify at least one rng seed in'
           ' `modelSeeds`.'
       )
-    
+
+    def get_current_id_sequence_map():
+      id_to_sequence_map = {}
+      for s_group in raw_json['sequences']:
+        for s in s_group.values():
+          sequence_id = s.get('id')
+          if isinstance(sequence_id, list):
+            for seq_id in sequence_id:
+              id_to_sequence_map[seq_id] = s
+          else:
+            id_to_sequence_map[sequence_id] = s
+
+      return id_to_sequence_map
+
+    if expand_crosslinks and raw_json.get('disulfide_bonds'):
+      logging.info(
+          'Adding disulfide bonds'
+      )
+
+      #Add S-S as crosslinks to reuse that code
+      for disulfide_bond in raw_json['disulfide_bonds']:
+        disulfide_bond['name'] = 'S-S'
+
+      if raw_json.get('crosslinks'):
+        raw_json['crosslinks'] += raw_json['disulfide_bonds']
+      else:
+        raw_json['crosslinks'] = raw_json['disulfide_bonds']
+
+      cys_to_mutate = []
+      for disulfide_bond in raw_json['disulfide_bonds']:
+        for resi1, resi2 in disulfide_bond['residue_pairs']:
+          chain_id1, resid1 = resi1
+          chain_id2, resid2 = resi2
+          cys_to_mutate.append((chain_id1, resid1))
+          cys_to_mutate.append((chain_id2, resid2))
+
+      def mutate_seq(seq, aa, resid):
+        return seq[:resid-1] + aa + seq[resid:]
+
+      def mutate_msa(msa, aa, resid):
+        items = msa.split('\n', maxsplit=2)
+        return items[0] + '\n' + mutate_seq(items[1], aa, resid) + '\n' + items[2]
+
+      #Mutate to cysteines to alanines
+      for s_group in raw_json['sequences']:
+        for s in s_group.values():
+          if isinstance(s.get('id'), list):
+            sequence_ids = s['id']
+          else:
+            sequence_ids = [s['id']]
+
+          for cys in cys_to_mutate:
+            if cys[0] in sequence_ids:
+              new_seq = mutate_seq(s['sequence'], 'A', cys[1])
+              s['sequence'] = new_seq
+
+              if s.get('unpairedMsa'):
+                s['unpairedMsa'] = mutate_msa(s['unpairedMsa'], 'A', cys[1])
+              
+              if s.get('pairedMsa'):
+                s['pairedMsa'] = mutate_msa(s['pairedMsa'], 'A', cys[1])
+
+        del raw_json['disulfide_bonds']
 
     if expand_crosslinks and raw_json.get('crosslinks'):
       logging.info(
@@ -719,23 +783,11 @@ class Input:
       if not raw_json.get('bondedAtomPairs'):
         raw_json['bondedAtomPairs'] = []
       
-      def get_current_id_sequence_map():
-        id_to_sequence_map = {}
-        for s_group in raw_json['sequences']:
-          for s in s_group.values():
-            sequence_id = s.get('id')
-            if isinstance(sequence_id, list):
-              for seq_id in sequence_id:
-                id_to_sequence_map[seq_id] = s
-            else:
-              id_to_sequence_map[sequence_id] = s
 
-        return id_to_sequence_map
 
       added = []
       #TODO: add reading crosslinks json into a class
       for xlinkset in raw_json['crosslinks']:
-        print(xlinkset)
         #TODO: add validation
 
         xlinkname = xlinkset['name']
@@ -913,6 +965,7 @@ class Input:
         bonded_atom_pairs=bonded_atom_pairs,
         user_ccd=raw_json.get('userCCD'),
         crosslinks=raw_json.get('crosslinks'),
+        disulfide_bonds=raw_json.get('disulfide_bonds'),
         parent_name=raw_json.get('parentName'),
     )
 

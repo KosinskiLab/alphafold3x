@@ -827,7 +827,7 @@ def main(_):
 
   fold_inputs = []
   for json_data in input_json_objects:
-    if _RUN_INFERENCE.value and json_data['data'].get('crosslinks'):
+    if _RUN_INFERENCE.value and (json_data['data'].get('crosslinks') or json_data['data'].get('disulfide_bonds')):
         ori_job_name = json_data['data']['name']
         output_dir = os.path.join(_OUTPUT_DIR.value, folding_input.Input.get_sanitised_name(ori_job_name))
         os.makedirs(output_dir, exist_ok=True)
