@@ -8,6 +8,8 @@ By Agnieszka Obarska-Kosinska (idea and crosslink definitions) and Jan Kosinski 
 
 Most crosslink-based modeling programs implicitly model crosslinks by adding distance restraints between crosslinked residues. This program explicitly models crosslinks by adding crosslinker molecules as ligands and setting bonds to the crosslinked residues. This allows for more realistic modeling of crosslinks, and sometimes gives good results. The results are also more visually appealing. 
 
+Read more in the prep-print: [Improving AlphaFold 3 structural modeling by incorporating explicit crosslinks](https://www.biorxiv.org/content/10.1101/2024.12.03.626671v2).
+
 Usage:
 
 1. Install AlphaFold 3 as per the instructions in the original README below.
