@@ -761,8 +761,8 @@ def main(_):
       })
 
   if _RUN_INFERENCE.value and _SAMPLE_CROSSLINKS.value > 0:
-      #TODO: support multiple fold inputs in same json file
-
+    #TODO: support multiple fold inputs in same json file
+    #TODO: this is a mess, organize this better
     input_json_objects_temp = []
     for ori_json_data in input_json_objects:
       if ori_json_data['data'].get('crosslinks'):
@@ -778,18 +778,19 @@ def main(_):
         combinations = list(itertools.combinations(crosslinks, _SAMPLE_CROSSLINKS.value))
         for comb in combinations:
           new_json_data = ori_json_data['data'].copy()
-          new_json_data['data']['parentName'] = ori_json_data['data']['name']
+          new_json_data['parentName'] = ori_json_data['data']['name']
           xlinks_strings = []
-          crosslinks = []
+          crosslinks_residue_pairs = []
           for xlink in comb:
             residue1_str = f'{xlink["residue1"][0]}_{xlink["residue1"][1]}'
             residue2_str = f'{xlink["residue2"][0]}_{xlink["residue2"][1]}'
             xlinks_strings.append(f'{xlink["name"]}_{residue1_str}_{residue2_str}')
-            crosslinks.append({
+            crosslinks_residue_pairs.append([xlink['residue1'], xlink['residue2']])
+
+          new_json_data['crosslinks'] = [{
                 'name': xlink['name'],
-                'residue_pairs': [[xlink['residue1'], xlink['residue2']]]
-            })
-          new_json_data['data']['crosslinks'] = crosslinks
+                'residue_pairs': crosslinks_residue_pairs
+          }]
           ori_job_name = ori_json_data['data']['name']
           new_job_name = f'{folding_input.Input.get_sanitised_name(ori_job_name)}_{"_".join(xlinks_strings)}'          
           new_json_data['name'] = new_job_name
@@ -840,11 +841,12 @@ def main(_):
       fold_inputs.extend(folding_input.load_fold_inputs_from_path(json_data['original_path']))
 
   # Make sure we can create the output directory before running anything.
-  try:
-    os.makedirs(_OUTPUT_DIR.value, exist_ok=True)
-  except OSError as e:
-    print(f'Failed to create output directory {_OUTPUT_DIR.value}: {e}')
-    raise
+  if not _SAMPLE_CROSSLINKS.value > 0:
+    try:
+      os.makedirs(_OUTPUT_DIR.value, exist_ok=True)
+    except OSError as e:
+      print(f'Failed to create output directory {_OUTPUT_DIR.value}: {e}')
+      raise
 
   if _RUN_INFERENCE.value:
     # Fail early on incompatible devices, but only if we're running inference.
@@ -923,7 +925,7 @@ def main(_):
     if _NUM_SEEDS.value > 0:
       fold_input = set_seeds(fold_input, _NUM_SEEDS.value)
     if fold_input.parent_name:
-      output_dir = os.path.join(_OUTPUT_DIR.value, Input.get_sanitised_name(fold_input.parent_name))
+      output_dir = os.path.join(_OUTPUT_DIR.value, fold_input.sanitised_name())
     else:
       output_dir = os.path.join(_OUTPUT_DIR.value, fold_input.sanitised_name())
     process_fold_input(
