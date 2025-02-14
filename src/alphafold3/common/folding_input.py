@@ -793,7 +793,13 @@ class Input:
         xlinkname = xlinkset['name']
 
         if xlinkname not in crosslink_definitions.CROSSLINKS:
-          raise ValueError(f'Crosslink {xlinkname} not found in crosslink_definitions.py')
+          if xlinkname.startswith('RIGID'):
+            from alphafold3.crosslinks.rigid_crosslinks import rigid_definition
+            rigid = rigid_definition(xlinkname)
+            print(type(crosslink_definitions.CROSSLINKS))
+            crosslink_definitions.CROSSLINKS.update(rigid)
+          else:
+            raise ValueError(f'Crosslink {xlinkname} not found in crosslink_definitions.py')
 
         crosslink_def = crosslink_definitions.CROSSLINKS[xlinkname]
         raw_json['userCCD'] += crosslink_def['userCCD']
